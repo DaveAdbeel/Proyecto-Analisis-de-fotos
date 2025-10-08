@@ -295,16 +295,189 @@ export default function ColorPaletteExtractor() {
     URL.revokeObjectURL(url);
   };
 
-  // CP010: Compartir en Redes Sociales
-  const shareToSocial = (platform) => {
-    const paletteText = `Paleta de colores generada:\n${colors.join(', ')}`;
-    const urls = {
-      twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(paletteText)}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(paletteText)}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(paletteText)}`,
-    };
+  // ============================================
+  // CP010: CREAR IMAGEN PARA COMPARTIR
+  // ============================================
+  const createShareImage = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
     
-    window.open(urls[platform], '_blank', 'width=600,height=400');
+    // Dimensiones de la imagen a compartir
+    canvas.width = 1200;
+    canvas.height = 630; // Tamaño óptimo para OpenGraph
+    
+    // Fondo degradado
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, '#f8fafc');
+    gradient.addColorStop(1, '#e2e8f0');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Título
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.fillText('Paleta de Colores', 60, 80);
+    
+    // Subtítulo
+    ctx.fillStyle = '#64748b';
+    ctx.font = '24px sans-serif';
+    ctx.fillText(`${colors.length} colores dominantes`, 60, 120);
+    
+    // Dibujar paleta de colores
+    const colorWidth = 1080 / colors.length;
+    const startY = 180;
+    const colorHeight = 250;
+    
+    colors.forEach((color, index) => {
+      // Rectángulo de color
+      ctx.fillStyle = color;
+      ctx.fillRect(60 + (index * colorWidth), startY, colorWidth - 10, colorHeight);
+      
+      // Sombra suave
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 5;
+      
+      // Código hexadecimal
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 20px monospace';
+      ctx.shadowColor = 'transparent';
+      const textWidth = ctx.measureText(color).width;
+      const textX = 60 + (index * colorWidth) + (colorWidth - 10) / 2 - textWidth / 2;
+      ctx.fillText(color, textX, startY + colorHeight + 35);
+    });
+    
+    // Pie de página
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '18px sans-serif';
+    ctx.fillText('Generado con Extractor de Paleta de Colores', 60, 570);
+    
+    return canvas;
+  };
+
+  // ============================================
+  // SUBIR A IMGBB (alternativa más simple que Imgur)
+  // ============================================
+  const uploadToImgBB = async (imageDataUrl) => {
+    // API Key de ImgBB (obtén la tuya gratis en https://api.imgbb.com/)
+    const IMGBB_API_KEY = '2a9683657b6fed5e994603409968142a'; // Reemplaza con tu API Key
+    
+    try {
+      // Extraer solo el base64 (sin el prefijo data:image/png;base64,)
+      const base64Data = imageDataUrl.split(',')[1];
+      
+      // Crear FormData
+      const formData = new FormData();
+      formData.append('image', base64Data);
+      
+      // Subir a ImgBB
+      const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        return data.data.url; // URL pública de la imagen
+      } else {
+        throw new Error('Error al subir imagen a ImgBB');
+      }
+    } catch (error) {
+      console.error('Error al subir a ImgBB:', error);
+      return null;
+    }
+  };
+
+  // También mantenemos Imgur como alternativa
+  const uploadToImgur = async (imageDataUrl) => {
+    // Client ID de Imgur (si logras obtenerlo)
+    const IMGUR_CLIENT_ID = 'c5f3def536dd123';
+    
+    try {
+      const blob = await fetch(imageDataUrl).then(r => r.blob());
+      const formData = new FormData();
+      formData.append('image', blob);
+      
+      const response = await fetch('https://api.imgur.com/3/image', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Client-ID ${IMGUR_CLIENT_ID}`
+        },
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        return data.data.link;
+      } else {
+        throw new Error('Error al subir imagen a Imgur');
+      }
+    } catch (error) {
+      console.error('Error al subir a Imgur:', error);
+      return null;
+    }
+  };
+
+  // ============================================
+  // CP010: COMPARTIR EN REDES SOCIALES CON IMAGEN
+  // ============================================
+  const [isUploading, setIsUploading] = useState(false);
+
+  const shareToSocial = async (platform) => {
+    setIsUploading(true);
+    
+    try {
+      // Crear imagen combinada
+      const shareCanvas = createShareImage();
+      const imageDataUrl = shareCanvas.toDataURL('image/png', 0.9);
+      
+      // Intentar subir a ImgBB primero, luego Imgur como fallback
+      let publicUrl = await uploadToImgBB(imageDataUrl);
+      
+      if (!publicUrl) {
+        console.log('ImgBB falló, intentando con Imgur...');
+        publicUrl = await uploadToImgur(imageDataUrl);
+      }
+      
+      if (!publicUrl) {
+        alert('❌ Error al subir la imagen.\n\n💡 Tip: Obtén tu API Key gratis en https://api.imgbb.com/ y reemplázala en el código.');
+        setIsUploading(false);
+        return;
+      }
+      
+      const paletteText = `🎨 Paleta de Colores: ${colors.join(', ')}`;
+      
+      const urls = {
+        twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(paletteText)}&url=${encodeURIComponent(publicUrl)}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(publicUrl)}`,
+        whatsapp: `https://wa.me/?text=${encodeURIComponent(paletteText + '\n' + publicUrl)}`,
+      };
+      
+      window.open(urls[platform], '_blank', 'width=600,height=400');
+      
+    } catch (error) {
+      console.error('Error al compartir:', error);
+      alert('Hubo un error al compartir la imagen.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Alternativa: Descargar imagen para compartir manualmente
+  const downloadShareImage = () => {
+    const shareCanvas = createShareImage();
+    shareCanvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `paleta-colores-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 'image/png', 0.9);
   };
 
   return (
@@ -512,29 +685,44 @@ export default function ColorPaletteExtractor() {
                     <Share2 className="w-4 h-4" />
                     Compartir en Redes Sociales (CP010)
                   </h3>
-                  <div className="flex gap-3">
+                  
+                  {isUploading && (
+                    <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                      ⏳ Subiendo imagen a Imgur...
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-3 mb-3">
                     <button
                       onClick={() => shareToSocial('twitter')}
-                      className="flex-1 px-4 py-2 bg-blue-400 text-white rounded-lg hover:bg-blue-500 transition-colors text-sm font-medium"
+                      disabled={isUploading}
+                      className="flex-1 px-4 py-2 bg-blue-400 text-white rounded-lg hover:bg-blue-500 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Twitter / X
+                      {isUploading ? 'Subiendo...' : 'Twitter / X'}
                     </button>
                     <button
                       onClick={() => shareToSocial('facebook')}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      disabled={isUploading}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Facebook
+                      {isUploading ? 'Subiendo...' : 'Facebook'}
                     </button>
                     <button
                       onClick={() => shareToSocial('whatsapp')}
-                      className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium"
+                      disabled={isUploading}
+                      className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      WhatsApp
+                      {isUploading ? 'Subiendo...' : 'WhatsApp'}
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500 mt-2">
-                    ⚠️ Nota: La imagen no se carga automáticamente en la RRSS (limitación actual)
-                  </p>
+                  
+                  <button
+                    onClick={downloadShareImage}
+                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Descargar imagen para compartir
+                  </button>
                 </div>
               </div>
             )}
